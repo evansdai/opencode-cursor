@@ -11,7 +11,7 @@
 #   1. Builds dist/plugin-entry.js (bun install && bun run build)
 #   2. Writes ~/.config/opencode/.opencode-cursor-fork with this repo's absolute path
 #   3. Installs a portable plugin wrapper at ~/.config/opencode/plugin/cursor-acp.js
-#   4. Ensures cursor-acp provider exists in opencode.json
+#   4. Ensures cursor-acp provider exists in opencode.json (removes bare "cursor-acp" plugin entry)
 #
 # OPEN_CURSOR_DIR is optional after bootstrap. It overrides the registry for edge cases only.
 
@@ -119,7 +119,8 @@ ensure_opencode_json() {
     return 0
   fi
 
-  bun -e "
+  local removed_legacy=0
+  removed_legacy="$(bun -e "
     const fs = require('fs');
     const configPath = process.argv[1];
     const baseUrl = 'http://127.0.0.1:32124/v1';
@@ -132,9 +133,10 @@ ensure_opencode_json() {
       process.exit(1);
     }
     config.plugin = Array.isArray(config.plugin) ? config.plugin : [];
-    const hasWrapper = config.plugin.includes(pluginRef);
-    const hasLegacyId = config.plugin.includes('cursor-acp');
-    if (!hasWrapper && !hasLegacyId) {
+    const beforeLen = config.plugin.length;
+    config.plugin = config.plugin.filter((entry) => entry !== 'cursor-acp');
+    const removedLegacy = beforeLen - config.plugin.length;
+    if (!config.plugin.includes(pluginRef)) {
       config.plugin.push(pluginRef);
     }
     config.provider = config.provider && typeof config.provider === 'object' ? config.provider : {};
@@ -151,10 +153,15 @@ ensure_opencode_json() {
       models,
     };
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
-  " "$CONFIG_PATH" || {
+    process.stdout.write(String(removedLegacy));
+  " "$CONFIG_PATH" 2>&1)" || {
     log "Warning: failed to update opencode.json; wrapper and registry are still installed."
     return 0
   }
+
+  if [[ "${removed_legacy:-0}" -gt 0 ]]; then
+    log "Removed bare \"cursor-acp\" from plugin array (avoids broken cache package)."
+  fi
   log "Updated opencode.json (provider cursor-acp, plugin ./plugin/cursor-acp.js)."
 }
 
