@@ -754,7 +754,7 @@ describe("tool schema compatibility", () => {
       expect(rerouted).toBeNull();
     });
 
-    it("tryRerouteEditToWrite returns null for explicit old_string empty", () => {
+    it("applyToolSchemaCompat reroutes explicit empty old_string edit to write", () => {
       const toolSchemaMap = buildEditWriteSchemaMap(false);
       const call = editToolCall({
         path: "TODO.md",
@@ -762,14 +762,12 @@ describe("tool schema compatibility", () => {
         new_string: "replacement",
       });
       const compat = applyToolSchemaCompat(call, toolSchemaMap);
-      const rerouted = tryRerouteEditToWrite(
-        call,
-        compat,
-        new Set(["edit", "write"]),
-        toolSchemaMap,
-      );
-      expect(rerouted).toBeNull();
-      expect(compat.validation.missing).toEqual(["old_string"]);
+      expect(compat.toolCall.function.name).toBe("write");
+      expect(compat.validation.ok).toBe(true);
+      expect(compat.normalizedArgs).toEqual({
+        path: "TODO.md",
+        content: "replacement",
+      });
     });
 
     it("tryRerouteEditToWrite returns null when path missing", () => {
@@ -865,6 +863,42 @@ describe("tool schema compatibility", () => {
     expect(args.old_string).toBe("foo");
     expect(args.new_string).toBe("bar");
     expect(result.validation.ok).toBe(true);
+  });
+
+  it("normalizes task aliases and infers subagent_type", () => {
+    const result = applyToolSchemaCompat(
+      {
+        id: "t1",
+        type: "function",
+        function: {
+          name: "task",
+          arguments: JSON.stringify({
+            instruction: "Use Context7 to look up Express middleware docs.",
+            subagent: "lib",
+          }),
+        },
+      },
+      new Map([
+        [
+          "task",
+          {
+            type: "object",
+            properties: {
+              description: { type: "string" },
+              prompt: { type: "string" },
+              subagent_type: { type: "string", enum: ["explorer", "librarian", "fixer"] },
+            },
+            required: ["description", "prompt", "subagent_type"],
+            additionalProperties: false,
+          },
+        ],
+      ]),
+    );
+
+    expect(result.validation.ok).toBe(true);
+    expect(result.normalizedArgs.description).toContain("Use Context7");
+    expect(result.normalizedArgs.prompt).toBe("Use Context7 to look up Express middleware docs.");
+    expect(result.normalizedArgs.subagent_type).toBe("librarian");
   });
 
   it("builds schema map from request tools", () => {

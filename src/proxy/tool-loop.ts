@@ -97,6 +97,16 @@ const TOOL_NAME_ALIASES = new Map<string, string>([
   ["mcp_skill", "skill_mcp"],
   ["runmcpskill", "skill_mcp"],
   ["invokeskillmcp", "skill_mcp"],
+  // direct OpenCode MCP aliases
+  ["websearch", "websearch_web_search_exa"],
+  ["websearchtool", "websearch_web_search_exa"],
+  ["context7resolve", "context7_resolve-library-id"],
+  ["context7resolvelibraryid", "context7_resolve-library-id"],
+  ["context7query", "context7_query-docs"],
+  ["context7querydocs", "context7_query-docs"],
+  ["grepapp", "grep_app_searchGitHub"],
+  ["grepappsearch", "grep_app_searchGitHub"],
+  ["grepappsearchgithub", "grep_app_searchGitHub"],
 ]);
 
 export function extractAllowedToolNames(tools: Array<any>): Set<string> {
@@ -153,16 +163,14 @@ export function extractOpenAiToolCall(
     };
   }
 
-  // Unknown tool → pass through to cursor-agent
-  log.debug("Tool call not in allowlist; passing through to cursor-agent", {
+  // Unknown OpenCode-mode tool → suppress so StreamToSseConverter cannot emit
+  // an invalid OpenCode tool call for Cursor-native names such as listMcpResources.
+  log.debug("Tool call not in OpenCode allowlist; suppressing", {
     name,
     normalized: normalizeAliasKey(name),
     allowedToolCount: allowedToolNames.size,
   });
-  return {
-    action: "passthrough",
-    passthroughName: name,
-  };
+  return { action: "skip", skipReason: `unknown_tool:${name}` };
 }
 
 export function createToolCallCompletionResponse(meta: ToolLoopMeta, toolCall: OpenAiToolCall) {

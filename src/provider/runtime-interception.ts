@@ -141,7 +141,8 @@ export async function handleToolLoopEventLegacy(
 
   // Handle skip: no tool to intercept
   if (extraction.action === "skip" || !extraction.toolCall) {
-    const updates = await toolMapper.mapCursorEventToAcp(
+    const suppressUnknownOpenCodeTool = extraction.skipReason?.startsWith("unknown_tool:") === true;
+    const updates = suppressUnknownOpenCodeTool ? [] : await toolMapper.mapCursorEventToAcp(
       event,
       event.session_id ?? toolSessionId,
     );
@@ -159,7 +160,7 @@ export async function handleToolLoopEventLegacy(
       }
     }
 
-    return { intercepted: false, skipConverter: suppressConverterToolEvents };
+    return { intercepted: false, skipConverter: suppressUnknownOpenCodeTool || suppressConverterToolEvents };
   }
 
   // Handle intercept: known OpenCode tool
@@ -311,7 +312,8 @@ export async function handleToolLoopEventV1(
 
   // Handle skip: no tool to intercept
   if (extraction.action === "skip" || !extraction.toolCall) {
-    const updates = await toolMapper.mapCursorEventToAcp(
+    const suppressUnknownOpenCodeTool = extraction.skipReason?.startsWith("unknown_tool:") === true;
+    const updates = suppressUnknownOpenCodeTool ? [] : await toolMapper.mapCursorEventToAcp(
       event,
       event.session_id ?? toolSessionId,
     );
@@ -329,7 +331,7 @@ export async function handleToolLoopEventV1(
       }
     }
 
-    return { intercepted: false, skipConverter: suppressConverterToolEvents };
+    return { intercepted: false, skipConverter: suppressUnknownOpenCodeTool || suppressConverterToolEvents };
   }
 
   // Handle intercept: known OpenCode tool

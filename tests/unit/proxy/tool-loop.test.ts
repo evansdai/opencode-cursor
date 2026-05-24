@@ -110,7 +110,7 @@ describe("proxy/tool-loop", () => {
     expect(result.skipReason).toBe("event_skipped");
   });
 
-  it("returns passthrough for tool calls not present in allowed names", () => {
+  it("suppresses tool calls not present in allowed names", () => {
     const event: any = {
       type: "tool_call",
       call_id: "call_3",
@@ -123,8 +123,9 @@ describe("proxy/tool-loop", () => {
     };
 
     const result = extractOpenAiToolCall(event, new Set(["oc_other"]));
-    expect(result.action).toBe("passthrough");
-    expect(result.passthroughName).toBe("oc_brainstorm");
+    expect(result.action).toBe("skip");
+    expect(result.skipReason).toBe("unknown_tool:oc_brainstorm");
+    expect(result.toolCall).toBeUndefined();
   });
 
   it("maps updateTodos alias to allowed todowrite tool name", () => {
@@ -297,6 +298,25 @@ describe("proxy/tool-loop", () => {
     expect(result.toolCall?.function.name).toBe("skill_mcp");
   });
 
+  it("maps webSearch alias to allowed websearch_web_search_exa tool name", () => {
+    const event = createToolCallEvent("webSearch", { query: "OpenCode" });
+
+    const result = extractOpenAiToolCall(event, new Set(["websearch_web_search_exa"]));
+
+    expect(result.action).toBe("intercept");
+    expect(result.toolCall?.function.name).toBe("websearch_web_search_exa");
+  });
+
+  it("suppresses Cursor-native listMcpResources instead of forwarding invalid tool", () => {
+    const event = createToolCallEvent("listMcpResources", { server: "context7" });
+
+    const result = extractOpenAiToolCall(event, new Set(["context7_resolve-library-id"]));
+
+    expect(result.action).toBe("skip");
+    expect(result.skipReason).toBe("unknown_tool:listMcpResources");
+    expect(result.toolCall).toBeUndefined();
+  });
+
   it("builds valid non-stream tool call response", () => {
     const response = createToolCallCompletionResponse(
       { id: "resp-1", created: 123, model: "cursor-acp/auto" },
@@ -358,13 +378,13 @@ describe("extractOpenAiToolCall with pass-through", () => {
     expect(result.toolCall!.function.name).toBe("bash");
   });
 
-  it("should return passthrough action for unknown tools", () => {
+  it("should suppress unknown tools", () => {
     const event = createToolCallEvent("browser_navigate", { url: "https://example.com" });
 
     const result = extractOpenAiToolCall(event, allowedTools);
 
-    expect(result.action).toBe("passthrough");
-    expect(result.passthroughName).toBe("browser_navigate");
+    expect(result.action).toBe("skip");
+    expect(result.skipReason).toBe("unknown_tool:browser_navigate");
     expect(result.toolCall).toBeUndefined();
   });
 
@@ -409,13 +429,13 @@ describe("extractOpenAiToolCall with pass-through", () => {
     expect(result.toolCall!.function.name).toBe("bash");
   });
 
-  it("should return passthrough action for unknown tools", () => {
+  it("should suppress unknown tools", () => {
     const event = createToolCallEvent("browser_navigate", { url: "https://example.com" });
 
     const result = extractOpenAiToolCall(event, allowedTools);
 
-    expect(result.action).toBe("passthrough");
-    expect(result.passthroughName).toBe("browser_navigate");
+    expect(result.action).toBe("skip");
+    expect(result.skipReason).toBe("unknown_tool:browser_navigate");
     expect(result.toolCall).toBeUndefined();
   });
 

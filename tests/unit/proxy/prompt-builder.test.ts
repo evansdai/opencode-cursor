@@ -206,3 +206,40 @@ describe("buildPromptFromMessages", () => {
     expect(suffixCount).toBe(1);
   });
 });
+
+it("includes OpenCode MCP exact-name guidance without mcptool", () => {
+  const tools = [
+    { type: "function", function: { name: "websearch_web_search_exa", description: "Search web", parameters: {} } },
+    { type: "function", function: { name: "context7_resolve-library-id", description: "Resolve docs", parameters: {} } },
+  ];
+  const result = buildPromptFromMessages([{ role: "user", content: "Search" }], tools);
+
+  expect(result).toContain("websearch_web_search_exa");
+  expect(result).toContain("context7_resolve-library-id");
+  expect(result).toContain("call exact OpenCode MCP tool names directly");
+  expect(result).not.toContain("shell mcptool");
+});
+
+it("derives task subagent guidance from the task schema enum", () => {
+  const tools = [
+    {
+      type: "function",
+      function: {
+        name: "task",
+        description: "Delegate",
+        parameters: {
+          type: "object",
+          properties: {
+            description: { type: "string" },
+            prompt: { type: "string" },
+            subagent_type: { type: "string", enum: ["explorer", "librarian", "fixer"] },
+          },
+        },
+      },
+    },
+  ];
+  const result = buildPromptFromMessages([{ role: "user", content: "Delegate" }], tools, ["stale"]);
+
+  expect(result).toContain("Use one of: explorer, librarian, fixer");
+  expect(result).not.toContain("Use one of: stale");
+});

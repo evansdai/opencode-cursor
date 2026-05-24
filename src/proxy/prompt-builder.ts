@@ -64,17 +64,37 @@ export function buildPromptFromMessages(messages: Array<any>, tools: Array<any>,
         return `- ${name}: ${desc}\n  Parameters: ${paramStr}`;
       })
       .join("\n");
+    const mcpToolNames = tools
+      .map((t: any) => t?.function?.name ?? t?.name)
+      .filter((name: any): name is string => typeof name === "string" && isKnownDirectMcpTool(name));
+    const mcpGuidance = mcpToolNames.length > 0
+      ? `
+- MCP: call exact OpenCode MCP tool names directly (${mcpToolNames.join(", ")}). Never use webSearch or shell-based MCP commands in OpenCode mode.`
+      : "";
     lines.push(
-      `SYSTEM: You have access to the following tools. When you need to use one, respond with a tool_call in the standard OpenAI format.\n` +
-        `Tool guidance: prefer write/edit for file changes; use bash mainly to run commands/tests.\n\nAvailable tools:\n${toolDescs}`,
+      `SYSTEM: You have access to the following tools. When you need to use one, respond with a tool_call in the standard OpenAI format.
+` +
+        `Tool guidance: use write for new/full-file writes, edit only for exact text replacement, task for delegation; use bash mainly to run commands/tests.
+` +
+        `Required arguments (OpenCode schema — use exact keys):
+` +
+        `- glob: pattern (required), optional path.
+` +
+        `- grep: pattern and path. Do not use glob for text search.
+` +
+        `- write: path and content for new files and full-file writes.
+` +
+        `- edit: path, old_string, new_string. Never call edit with old_string=""; use write instead.
+` +
+        `- task: description, prompt, subagent_type.${mcpGuidance}
+
+Available tools:
+${toolDescs}`,
     );
-    const hasTaskTool = tools.some((t: any) => {
-      const name = (t?.function?.name ?? t?.name ?? "").toLowerCase();
-      return name === "task";
-    });
-    if (hasTaskTool && subagentNames.length > 0) {
+    const taskSubagentNames = extractTaskSubagentNames(tools, subagentNames);
+    if (taskSubagentNames.length > 0) {
       lines.push(
-        `When calling the task tool, set subagent_type to one of: ${subagentNames.join(", ")}. Do not omit this parameter.`
+        `When calling the task tool, subagent_type is REQUIRED. Use one of: ${taskSubagentNames.join(", ")}. Never use category or subagentType.`
       );
     }
   }
@@ -146,4 +166,31 @@ export function buildPromptFromMessages(messages: Array<any>, tools: Array<any>,
   });
 
   return finalPrompt;
+}
+
+
+function isKnownDirectMcpTool(name: string): boolean {
+  return name === "context7_resolve-library-id"
+    || name === "context7_query-docs"
+    || name === "grep_app_searchGitHub"
+    || name === "websearch_web_search_exa"
+    || name.startsWith("mcp__");
+}
+
+function extractTaskSubagentNames(tools: Array<any>, fallbackNames: string[]): string[] {
+  for (const tool of tools) {
+    const fn = tool?.function ?? tool;
+    if ((fn?.name ?? "").toLowerCase() !== "task") {
+      continue;
+    }
+    const parameters = fn?.parameters;
+    const subagentSchema = parameters?.properties?.subagent_type;
+    const enumValues = Array.isArray(subagentSchema?.enum)
+      ? subagentSchema.enum.filter((value: unknown): value is string => typeof value === "string" && value.length > 0)
+      : [];
+    if (enumValues.length > 0) {
+      return enumValues;
+    }
+  }
+  return fallbackNames;
 }

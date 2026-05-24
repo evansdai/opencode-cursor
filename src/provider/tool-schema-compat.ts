@@ -18,9 +18,15 @@ const ARG_KEY_ALIASES = new Map<string, string>([
   ["globpattern", "pattern"],
   ["filepattern", "pattern"],
   ["searchpattern", "pattern"],
+  ["glob", "pattern"],
+  ["query", "pattern"],
+  ["search", "pattern"],
+  ["searchquery", "pattern"],
+  ["regex", "pattern"],
   ["includepattern", "include"],
   ["workingdirectory", "cwd"],
   ["workdir", "cwd"],
+  ["workingdir", "cwd"],
   ["currentdirectory", "cwd"],
   ["cmd", "command"],
   ["script", "command"],
@@ -35,6 +41,28 @@ const ARG_KEY_ALIASES = new Map<string, string>([
   ["recursive", "force"],
   ["oldstring", "old_string"],
   ["newstring", "new_string"],
+  ["oldcontent", "old_string"],
+  ["newcontent", "new_string"],
+  ["findstring", "old_string"],
+  ["replacestring", "new_string"],
+  ["title", "description"],
+  ["summary", "description"],
+  ["taskname", "description"],
+  ["instruction", "prompt"],
+  ["instructions", "prompt"],
+  ["message", "prompt"],
+  ["subagent", "subagent_type"],
+  ["subagenttype", "subagent_type"],
+  ["agenttype", "subagent_type"],
+  ["delegateto", "subagent_type"],
+]);
+
+const SUBAGENT_NAMES = ["explorer", "librarian", "fixer", "orchestrator", "designer"];
+
+const SUBAGENT_ALIASES = new Map<string, string>([
+  ["explore", "explorer"],
+  ["lib", "librarian"],
+  ["fix", "fixer"],
 ]);
 
 export interface ToolSchemaValidationResult {
@@ -79,14 +107,18 @@ export function applyToolSchemaCompat(
   toolCall: OpenAiToolCall,
   toolSchemaMap: Map<string, unknown>,
 ): ToolSchemaCompatResult {
-  const parsedArgs = parseArguments(toolCall.function.arguments);
+  let routedToolCall = toolCall;
+  const parsedArgs = parseArguments(routedToolCall.function.arguments);
   const originalArgKeys = Object.keys(parsedArgs);
-  const { normalizedArgs, collisionKeys } = normalizeArgumentKeys(parsedArgs);
-  const toolSpecificArgs = normalizeToolSpecificArgs(toolCall.function.name, normalizedArgs);
-  const schema = toolSchemaMap.get(toolCall.function.name);
+  let { normalizedArgs, collisionKeys } = normalizeArgumentKeys(parsedArgs);
+  const schemaAwareRoute = rerouteAfterArgNormalization(routedToolCall, normalizedArgs, toolSchemaMap);
+  routedToolCall = schemaAwareRoute.toolCall;
+  normalizedArgs = schemaAwareRoute.args;
+  const schema = toolSchemaMap.get(routedToolCall.function.name);
+  const toolSpecificArgs = normalizeToolSpecificArgs(routedToolCall.function.name, normalizedArgs, schema);
   const sanitization = sanitizeArgumentsForSchema(toolSpecificArgs, schema);
   const validation = validateToolArguments(
-    toolCall.function.name,
+    routedToolCall.function.name,
     sanitization.args,
     schema,
     sanitization.unexpected,
@@ -97,9 +129,9 @@ export function applyToolSchemaCompat(
   );
 
   const normalizedToolCall: OpenAiToolCall = {
-    ...toolCall,
+    ...routedToolCall,
     function: {
-      ...toolCall.function,
+      ...routedToolCall.function,
       arguments: JSON.stringify(sanitization.args),
     },
   };
@@ -112,6 +144,36 @@ export function applyToolSchemaCompat(
     normalizedArgKeys: Object.keys(sanitization.args),
     collisionKeys,
     validation,
+  };
+}
+
+function rerouteAfterArgNormalization(
+  toolCall: OpenAiToolCall,
+  args: JsonRecord,
+  toolSchemaMap: Map<string, unknown>,
+): { toolCall: OpenAiToolCall; args: JsonRecord } {
+  if (toolCall.function.name.toLowerCase() !== "edit" || !toolSchemaMap.has("write")) {
+    return { toolCall, args };
+  }
+
+  const oldString = coerceToString(args.old_string);
+  const newString = coerceToString(args.new_string ?? args.content);
+  const path = coerceToString(args.path ?? args.filePath);
+  if (oldString === null || oldString.trim().length > 0 || path === null || newString === null) {
+    return { toolCall, args };
+  }
+
+  const writeArgs = buildWriteArguments(path.trim(), newString, toolSchemaMap.get("write"));
+  return {
+    toolCall: {
+      ...toolCall,
+      function: {
+        ...toolCall.function,
+        name: "write",
+        arguments: JSON.stringify(writeArgs),
+      },
+    },
+    args: writeArgs,
   };
 }
 
@@ -250,8 +312,12 @@ function resolveCanonicalArgKey(rawKey: string): string | null {
   return ARG_KEY_ALIASES.get(token) ?? null;
 }
 
-function normalizeToolSpecificArgs(toolName: string, args: JsonRecord): JsonRecord {
+function normalizeToolSpecificArgs(toolName: string, args: JsonRecord, schema?: unknown): JsonRecord {
   const normalizedToolName = toolName.toLowerCase();
+  if (normalizedToolName === "task") {
+    return isRecord(schema) ? normalizeTaskArgs(args) : args;
+  }
+
   if (normalizedToolName === "bash") {
     const normalized: JsonRecord = { ...args };
     const normalizedCommand = normalizeBashCommand(normalized.command);
@@ -362,6 +428,68 @@ function normalizeToolSpecificArgs(toolName: string, args: JsonRecord): JsonReco
   }
 
   return repaired;
+}
+
+function normalizeTaskArgs(args: JsonRecord): JsonRecord {
+  const normalized: JsonRecord = { ...args };
+
+  const description = coerceToString(normalized.description);
+  const prompt = coerceToString(normalized.prompt);
+  if (!description?.trim()) {
+    normalized.description = prompt?.trim()
+      ? prompt.trim().slice(0, 80)
+      : "Delegated subtask";
+  }
+  if (!prompt?.trim()) {
+    const fallback = coerceToString(normalized.description);
+    normalized.prompt = fallback?.trim()
+      ? fallback.trim()
+      : "Complete the delegated work and report results only.";
+  }
+
+  const rawSubagent = coerceToString(normalized.subagent_type);
+  const mappedSubagent = rawSubagent ? mapSubagentName(rawSubagent) : null;
+  if (mappedSubagent) {
+    normalized.subagent_type = mappedSubagent;
+  } else if (!rawSubagent?.trim()) {
+    normalized.subagent_type = inferSubagentFromText(
+      coerceToString(normalized.description),
+      coerceToString(normalized.prompt),
+    ) ?? "explorer";
+  }
+
+  delete normalized.category;
+  delete normalized.model;
+  return normalized;
+}
+
+function mapSubagentName(raw: string): string | null {
+  const token = raw.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return SUBAGENT_ALIASES.get(token) ?? (SUBAGENT_NAMES.includes(token) ? token : null);
+}
+
+function inferSubagentFromText(...texts: Array<string | null>): string | null {
+  const combined = texts.filter((text): text is string => typeof text === "string").join("\n").toLowerCase();
+  if (!combined) {
+    return null;
+  }
+  if (combined.includes("part b") || combined.includes("context7") || combined.includes("grep_app")) {
+    return "librarian";
+  }
+  if (combined.includes("part c") || combined.includes("smoke-result")) {
+    return "fixer";
+  }
+  for (const agent of SUBAGENT_NAMES) {
+    if (combined.includes(agent)) {
+      return agent;
+    }
+  }
+  for (const [alias, agent] of SUBAGENT_ALIASES) {
+    if (combined.includes(alias)) {
+      return agent;
+    }
+  }
+  return null;
 }
 
 function normalizeBashCommand(value: unknown): string | null {
