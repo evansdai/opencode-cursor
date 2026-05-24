@@ -3,7 +3,7 @@ import { tool } from "@opencode-ai/plugin";
 import type { Auth } from "@opencode-ai/sdk";
 import { realpathSync } from "fs";
 import { mkdir } from "fs/promises";
-import { homedir } from "os";
+import { homedir, tmpdir } from "os";
 import { isAbsolute, join, relative, resolve } from "path";
 import { ToolMapper, type ToolUpdate } from "./acp/tools.js";
 import { startCursorOAuth } from "./auth";
@@ -224,14 +224,14 @@ export function createPromptDirectedToolCalls(
   } else if (prompt.includes("live-benchmark-write.txt") || prompt.includes("scratch result file")) {
     const writeMatch = rawPrompt.match(/live-benchmark-write\.txt with content (.+?)(?:\.\s*Do not|$)/i);
     addCall("write", {
-      path: "/home/evansdai/.config/opencode/tool-usage-tests/scratch/live-benchmark-write.txt",
+      path: join(getOpenCodeConfigPrefix(), "tool-usage-tests", "scratch", "live-benchmark-write.txt"),
       content: writeMatch ? writeMatch[1].trim().replace(/\.$/, "") : "Benchmark OK",
     });
   } else if (prompt.includes("replacing exact text ") && prompt.includes("with exact text ")) {
     const match = rawPrompt.match(/replacing exact text `([^`]+)` with exact text `([^`]+)`/i);
     if (match) {
       const pathHint = rawPrompt.match(/edit\s+(\S+\.txt)/i);
-      const filePath = pathHint ? pathHint[1].replace(/^~/, "/home/evansdai") : "/tmp/benchmark-edit.txt";
+      const filePath = pathHint ? pathHint[1].replace(/^~/, homedir()) : join(tmpdir(), "benchmark-edit.txt");
       addCall("edit", { path: filePath, old_string: match[1], new_string: match[2] });
     }
   } else if (prompt.includes("ast_grep_search") || prompt.includes('"model"')) {
@@ -239,8 +239,8 @@ export function createPromptDirectedToolCalls(
     const pathMatch = rawPrompt.match(/under\s+(\S+)/);
     const globsMatch = rawPrompt.match(/globs\s+(\S+)/);
     const resolvedPath = pathMatch
-      ? pathMatch[1].replace(/^~/, "/home/evansdai").replace(/\/$/, "")
-      : "/home/evansdai/.config/opencode";
+      ? pathMatch[1].replace(/^~/, homedir()).replace(/\/$/, "")
+      : getOpenCodeConfigPrefix();
     addCall("ast_grep_search", {
       pattern: '"model": $VALUE',
       lang: "json",

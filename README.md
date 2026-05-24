@@ -8,6 +8,18 @@
 
 No prompt limits. No broken streams. Full thinking + tool support in OpenCode. Your Cursor subscription, properly integrated.
 
+## Personal fork (clone + bootstrap)
+
+If you maintain a **local fork** (for example custom Composer tool-contract fixes) instead of the published npm package:
+
+```bash
+git clone <your-fork-url> opencode-cursor && cd opencode-cursor && ./scripts/bootstrap.sh
+```
+
+Bootstrap builds the fork, registers its path (clone **anywhere** — no fixed `~/Documents` location), and installs a portable OpenCode plugin loader. **`OPEN_CURSOR_DIR` is not required** after bootstrap.
+
+Full guide: [docs/PERSONAL_SETUP.md](docs/PERSONAL_SETUP.md)
+
 ## Installation
 
 ### Option A — One-line installer
