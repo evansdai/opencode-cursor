@@ -20,7 +20,7 @@ Requirements: **git**, **bun**, **cursor-agent** on `PATH`. On Windows use **Git
 | Registry | `~/.config/opencode/.opencode-cursor-fork` contains the **absolute** path to this clone |
 | Marker | `.opencode-cursor-fork` in the repo root (same path, for dev/monorepo) |
 | Plugin | Copies `scripts/templates/cursor-acp-plugin-wrapper.js` → `~/.config/opencode/plugin/cursor-acp.js` |
-| Config | Adds `"./plugin/cursor-acp.js"` and `cursor-acp` provider to `opencode.json` (if missing) |
+| Config | Adds `"./plugin/cursor-acp.js"` and `cursor-acp` provider; **removes** bare `"cursor-acp"` from `plugin` (broken cache package) |
 | Models | Optional: `sync-models --variants --compact` when `cursor-agent` is available |
 
 ## How the fork is found (no magic paths)
@@ -39,7 +39,7 @@ If you keep `opencode.json`, agents, and tests in another git repo (for example 
 
 1. Clone both repos.
 2. Run bootstrap **from the fork** (this repo).
-3. Ensure your config repo’s `opencode.json` includes:
+3. Ensure your config repo's `opencode.json` includes:
 
    ```json
    "plugin": [
@@ -47,7 +47,7 @@ If you keep `opencode.json`, agents, and tests in another git repo (for example 
    ]
    ```
 
-4. Either let bootstrap update `~/.config/opencode/opencode.json`, or copy the wrapper template into your config repo’s `plugin/cursor-acp.js` and run bootstrap once so the registry file points at your fork.
+4. Either let bootstrap update `~/.config/opencode/opencode.json`, or copy the wrapper template into your config repo's `plugin/cursor-acp.js` and run bootstrap once so the registry file points at your fork.
 
 The registry file always lives under **`$XDG_CONFIG_HOME/opencode`** (default `~/.config/opencode`), even when `OPENCODE_CONFIG` points at another `opencode.json`.
 
@@ -103,6 +103,7 @@ This rewrites the registry and marker. You only need `OPEN_CURSOR_DIR` if you wa
 | `fork location unknown` | Run `./scripts/bootstrap.sh` from the fork root |
 | `build not found at .../dist/plugin-entry.js` | `bun install && bun run build` in the fork |
 | OpenCode still uses old npm plugin | Remove `@rama_nigg/open-cursor@...` from `plugin` array; keep `./plugin/cursor-acp.js` |
+| Bare `"cursor-acp"` in `plugin` array | Re-run `./scripts/bootstrap.sh` — it removes this entry automatically |
 | Wrong fork loaded | Check `cat ~/.config/opencode/.opencode-cursor-fork` |
 | Models empty | `bun run dist/cli/opencode-cursor.js sync-models --variants --compact` after `cursor-agent login` |
 
